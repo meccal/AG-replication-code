@@ -2,7 +2,8 @@
 LUCA MECCA
 lmecca@london.edu
 Replicate the results of Aguiar, Gopinath (2006) using value function iteration (VFI) and Tauchen discretization
-December 2022
+In this version, lenders are risk-averse with EZ preferences
+January 2023
 """
 
 using Distributions, Plots
@@ -12,17 +13,34 @@ include("Discretize.jl")
 #################################################################
 ########################## CALIBRATION ##########################
 #################################################################
-version="permanent" #choose "permanent" if you want to run the version of the model with only shocks to the trend
+version="complete" #choose "permanent" if you want to run the version of the model with only shocks to the trend
 #choose "transitory" to run the version of the model with only transitory shocks.
 #choose "complete" if you want to allow for both transitory and permanent shocks
 
 g_grid_version="logs" #choose "logs" if you want to have an equally-spaced grid in logs
 #choose "levels" if you want to have an equally spaced grid in levels (as in the paper)
 
-#Take the parameters for the quartely AG06 calibration
+#Take the parameters for the quartely AG06 calibration and the 
 γ=2 #government's risk aversion
-r=0.01 #world interest rate
 β=0.8 #discount factor
+
+#parameters defining the consumption, long run growth
+μ_c=0.0015*4 #mean consumption growth
+ρ_c=0.979 #LRR persistence
+ϕ_e=0.044 #LRR volatility multiple
+σ_c=0.0079*4 #deterministic volatility
+
+#preference parameters
+γ_L=10 #risk aversion of the international lender
+ψ=1.5 #EIS
+β_L=0.998^4 #time discount factor of the international lender
+r=0.01 #world interest rate
+
+#compute the theta parameter of EZ preferences
+θ=(1-γ)/(1-1/ψ)
+
+#discretization parameters
+n_x=30 #grid points for long run growth
 
 δ=0.02 #loss of output in autarky
 λ=0.1 #probability of redemption
@@ -63,8 +81,11 @@ end
 #################################################################
 ######################### DISCRETIZATION ########################
 #################################################################
-#We discretize the state variables: a amount of debt (control/state - endogenous)
-# g_t the trend shock 
+#We discretize the state variables: 
+#a amount of debt (control/state - endogenous)
+#g_t the trend shock 
+#x_t long run risk
+
 #z_t the transitory shocks (state - exogenous)
 
 #Endowment (y)
@@ -104,62 +125,88 @@ end
 #Debt (a)
 a_grid=LinRange(a_min, a_max, n_a)
 
-#Now compute the transtion matrices that include the probabilities of contemporaneous changes in both g_t and z_t
-#for each (g_t, z_t) pair we create a (n_gxn_z) matrix that include the proability of moving to the pair (g_{t+1}, z_{t+1})
-T_matrix_g_z=Matrix{Any}(undef,n_g,n_z)
-for i in 1:n_g, j=1:n_z
-    #select the transition probabilities for g_t from state i to all other states
-    prob_g=T_matrix_g[:,i]
-    #select the transition probabilities for z_t from state j to all other states
-    prob_z=T_matrix_z[:,j]
-    #Now compute the combined probabilities of moving across states
-    prob_g_z=Matrix{Float64}(undef,n_g,n_z) 
-    for k in 1:lastindex(prob_g), h in 1:lastindex(prob_z)
-        prob_g_z[k,h]=prob_g[k]*prob_z[h]
-    end
-    #store it in the Transition matrix
-    T_matrix_g_z[i,j]=prob_g_z
+#long run risk 
+x_grid, T_matrix_x = Tau(ρ_c, σ_c*ϕ_e, n_x)
+
+#Now compute the transtion vector that includes the probabilities of contemporaneous changes in both g_t, z_t, and x_t
+#for each (g_t, z_t, x_t) triplet we create a (n_gxn_zxn_x) vector that includes the proability of moving to the triple (g_{t+1}, z_{t+1}, x_{t+1})
+#n_gxn_zxn_x is the number of unique combinations
+T_vector_g_z_x=Matrix{Any}(undef,n_g*n_z*n_x,1)
+for i in 1:n_g, j=1:n_z, k in 1:n_x
+    T_vector_g_z_x[k+(i-1)*n_z*n_x+(j-1)*n_x]=repeat(T_matrix_x[:,k], outer=n_g*n_z).*repeat(repeat(T_matrix_z[:,j], inner=n_x), outer=n_g).*
+    repeat(T_matrix_g[:,i], inner=n_x*n_z)
 end
 
 #store size of the matrices (need it in the iteration step)
-nrow=size(T_matrix_g_z[1,1])[1]
-ncol=size(T_matrix_g_z[1,1])[2]
+#nrow=size(T_matrix_g_z[1,1])[1]
+#ncol=size(T_matrix_g_z[1,1])[2]
 #################################################################
 
 
 #################################################################
 ########################### ITERATION ###########################
 #################################################################
-#Initialize price function q(z_t, g_t, a_{t+1}) is a (n_g*n_z x n_a) matrix
+#Initialize the price to consumption ratio
+PC_t=zeros(n_x,1)
+#Pin down the SDF by find ind the fixed point for PC_t
+#Policy function iteration continues until difference is lower than 10^(-6) or the number of iterations > 10,000
+difference=1
+counter=0
+error_list_PC=ones(0)
+#constant part of the iteration
+constant=β_L^θ.*exp.((1-γ_L).*(μ_c.+x_grid).+0.5*(1-γ_L)^2*σ_c^2)
+while difference>10^(-6) && counter<10000
+    global counter+=1
+    if mod(counter,20)==0
+        print("Iteration number " * string(counter)* " for the SDF\n")
+    end
+
+    #expected value part
+    EV=[sum(T_matrix_x[:,j].*(1 .+PC_t).^θ) for j in 1:n_x]
+
+    
+    global PC_t1=(constant .* EV).^(1/θ)
+    #Now compute the difference between the newly found value function and the previous one
+    global difference=sum(abs.(PC_t-PC_t1))
+    append!(error_list_PC, difference)
+    #If the difference is too large, set Vf=Vf_1 and restart:
+    global PC_t=PC_t1
+
+end
+
+#Initialize price function q(z_t, g_t, a_{t+1}) is a (n_g*n_z*n_x*n_a) vector
 #Initialized at the risk-free rate (assuming that probability of default is zero)
-q_t=ones(n_g*n_z, n_a).*((1+r)^(-1))
+q_t=ones(n_g*n_z*n_x*n_a,1).*((1+r)^(-1))
 
 #Initialize the value functions
-#V^G(a_t, z_t, g_t), the value function if in good credit state, is a (n_g*n_z x n_a) matrix
-VG_t=zeros(n_g*n_z, n_a)
-#V^B(z_t, g_t), the value function if in bad credit state is a (n_g*n_z x 1) matrix (does not depend on debt)
-VB_t=zeros(n_g*n_z, 1)
-#V(a_t, z_t, g_t)=max(V^G(a_t, z_t, g_t), V^B(z_t, g_t))
-V_t=zeros(n_g*n_z, n_a)
+#V^G(a_t, z_t, g_t, x_t), the value function if in good credit state
+VG_t=zeros(n_g*n_z*n_x*n_a,1)
+#V^B(z_t, g_t, x_t), the value function if in bad credit state is a (n_g*n_z*n_x) vector (does not depend on debt)
+VB_t=zeros(n_g*n_z*n_x, 1)
+#V(a_t, z_t, g_t, x_t)=max(V^G(a_t, z_t, g_t, x_t), V^B(z_t, g_t, x_t))
+V_t=zeros(n_g*n_z*n_x*n_a,1)
 
 #Value function iteration continues until difference is lower than 10^(-6) or the number of iterations > 10,000
 difference=1
 counter=0
-error_list=ones(0)
+error_list_VF=ones(0)
 while difference>10^(-6) && counter<10000
     global counter+=1
     if mod(counter,20)==0
-        print("Iteration number " * string(counter)*"\n")
+        print("Iteration number " * string(counter)*" for the value functions\n")
     end
 
     #GOOD STATE
     #Start with the value function if the credit history is good (G)
     #Compute the amount of consumption for each possible level of the state variables (a_t, g_t, z_t) and choice variable (a_{t+1})
-    global U=Matrix{Any}(undef,n_a*n_g*n_z,n_a)
-    for i in 1:n_a, j in 1:n_g, k in 1:n_z, h in 1:n_a
-        U[(i-1)*n_g*n_z+(j-1)*n_z+k,h]=(exp(z_grid[k])*g_grid[j]/μ_g+a_grid[i]-q_t[(j-1)*n_z+k,h]*a_grid[h]*g_grid[j])^(1-γ)/(1-γ)
+    global U=Matrix{Any}(undef,n_a*n_g*n_z*n_x*n_a,1)
+    #i is present amount of bonds a_t
+    #h is future amount of bonds a_{t+1}
+    for i in 1:n_a, j in 1:n_g, k in 1:n_z, m in 1:n_x, h in 1:n_a
+        U[h+n_a*(m-1)+(k-1)*n_a*n_x+(j-1)*n_a*n_x*n_z+(i-1)*n_a*n_x*n_z*n_g]=(exp(z_grid[k])*g_grid[j]/μ_g+a_grid[i]-q_t[h+n_a*(m-1)+(k-1)*n_a*n_x+(j-1)*n_a*n_x*n_z]*a_grid[h]*g_grid[j])^(1-γ)/(1-γ)
     end
 
+    prob_g_z_x[n+(h-1)*n_z*n_x+(m-1)*n_x]
     #Expected continuation value
     EV=Matrix{Any}(undef,n_g*n_z,n_a)
     for i in 1:n_g, j in 1:n_z, k in 1:n_a
@@ -203,7 +250,7 @@ while difference>10^(-6) && counter<10000
 
     #Difference
     global difference=max(sum(abs.(VB_t1-VB_t)), sum(abs.(VG_t1-VG_t)))
-    append!(error_list, difference)
+    append!(error_list_VF, difference)
     #If difference is not small enough, keep iterating
     global VB_t=VB_t1
     global VG_t=VG_t1
