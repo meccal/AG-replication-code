@@ -6,22 +6,22 @@ December 2022
 """
 
 #INSTRUCTIONS: To allow for permanent/transitory shocks, you should change the version parameter
-#in the AG_VFI_Tauchen.jl file
+#in the AG_VFI_Discrete.jl file
 
 using CSV, Distributions, Random, Interpolations, HPFilter
 
 #Folder where the .jl file replicating the model is stored
-path="C:/Users/lmecca/OneDrive - London Business School/Research/Replications/Aguiar-Gopinath/AG_replication_code/Classic"
+const path="C:/Users/lmecca/OneDrive - London Business School/Research/Replications/Aguiar-Gopinath/AG_replication_code/Classic"
 
-interpolation="No" #Choose "No" if for g_t and z_t you want to find the closest point of the grid, so effectively
+const interpolation="No" #Choose "No" if for g_t and z_t you want to find the closest point of the grid, so effectively
 #you don't need to interpolate on the policy functions
 #Choose "Yes" if instead you want to allow values of g_t and z_t different from the grid points
 ################################################################
 ########################## PARAMETERS ##########################
 ################################################################
-K=500 #number of simulations
-T=10000 #number of quarters for each simulation
-brns=9500 #burn-in observations
+const K=500 #number of simulations
+const T=10000 #number of quarters for each simulation
+const brns=9500 #burn-in observations
 
 ################################################################
 
