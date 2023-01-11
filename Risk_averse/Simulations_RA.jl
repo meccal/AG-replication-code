@@ -11,7 +11,7 @@ December 2022
 using CSV, Distributions, Random, Interpolations, HPFilter
 
 #Folder where the .jl file replicating the model is stored
-const path="C:/Users/lmecca/OneDrive - London Business School/Research/Replications/Aguiar-Gopinath/AG_replication_code/Risk_averse"
+const path="..."
 const report="mean" #Choose "mean if you want to report the mean of the simulation paths, choose "median" otherwise
 const interpolation="Yes" #Choose "No" if for g_t and z_t you want to find the closest point of the grid, so effectively
 #you don't need to interpolate on the policy functions

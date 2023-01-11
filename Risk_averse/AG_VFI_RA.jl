@@ -4,6 +4,7 @@ lmecca@london.edu
 Replicate the results of Aguiar, Gopinath (2006) using value function iteration (VFI) and Tauchen discretization
 In this version, lenders are risk-averse with EZ preferences
 January 2023
+Written and tested in Julia 1.8
 """
 
 using Distributions, Plots, RecursiveArrayTools

@@ -11,7 +11,7 @@ December 2022
 using CSV, Distributions, Random, Interpolations, HPFilter
 
 #Folder where the .jl file replicating the model is stored
-const path="C:/Users/lmecca/OneDrive - London Business School/Research/Replications/Aguiar-Gopinath/AG_replication_code/Classic"
+const path="..."
 
 const interpolation="No" #Choose "No" if for g_t and z_t you want to find the closest point of the grid, so effectively
 #you don't need to interpolate on the policy functions
